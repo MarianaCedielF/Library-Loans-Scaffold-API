@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository } from 'typeorm';
 import { Item, ItemType } from '../items/entities/item.entity';
+import { ReservationsService } from '../reservations/reservations.service';
 import { CreateLoanDto } from './dto/create-loan.dto';
 import { Loan, LoanStatus } from './entities/loan.entity';
 import { LoansService } from './loans.service';
@@ -81,6 +82,13 @@ describe('LoansService', () => {
               };
               return values[key] ?? def;
             }),
+          },
+        },
+        {
+          provide: ReservationsService,
+          useValue: {
+            assertCanTakeLoan: jest.fn().mockResolvedValue(undefined),
+            fulfillNextPending: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

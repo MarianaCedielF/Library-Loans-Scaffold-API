@@ -99,7 +99,21 @@ WHERE due_at < NOW()
 
 ## Bonos implementados
 
-Ningún bono implementado en esta entrega.
+### B1 — Cola FIFO de reservas (+8%)
+
+Implementado. Nuevos endpoints en `/api/reservations`:
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST /reservations` | body `{ itemId }` | Crea reserva. Requiere ítem NO disponible (409 si está libre) |
+| `GET /reservations` | `?userId=&itemId=` | Member ve las propias; admin/librarian ven todas |
+| `DELETE /reservations/:id` | — | Cancela reserva propia (admin/librarian pueden cancelar cualquiera) |
+
+**Reglas de negocio implementadas:**
+- **R-B1.1** Un usuario no puede tener más de 1 reserva pendiente para el mismo ítem.
+- **R-B1.2** Al devolver un préstamo (`PATCH /loans/:id/return`), se busca la primera reserva pendiente (orden `createdAt ASC`) y se marca `fulfilledAt = now()`, `expiresAt = now() + 48h`.
+- **R-B1.3** Si la reserva cumplida expira sin que el usuario tome el préstamo, la siguiente reserva en cola recibe la notificación en la próxima devolución.
+- **R-B1.4** Al crear un préstamo, si existen reservas pendientes para el ítem, solo el primero de la cola puede tomarlo; los demás reciben `403 Forbidden`.
 
 ---
 

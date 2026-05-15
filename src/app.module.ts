@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { ItemsModule } from './modules/items/items.module';
 import { LoansModule } from './modules/loans/loans.module';
+import { ReservationsModule } from './modules/reservations/reservations.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { LoansModule } from './modules/loans/loans.module';
     AuthModule,
     ItemsModule,
     LoansModule,
+    ReservationsModule,
   ],
 })
 export class AppModule {}

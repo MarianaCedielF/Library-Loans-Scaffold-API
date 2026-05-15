@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Item } from '../items/entities/item.entity';
+import { ReservationsService } from '../reservations/reservations.service';
 import { CreateLoanDto } from './dto/create-loan.dto';
 import { QueryLoansDto } from './dto/query-loans.dto';
 import { Loan, LoanStatus } from './entities/loan.entity';
@@ -20,6 +21,7 @@ export class LoansService {
     @InjectRepository(Item)
     private readonly itemRepository: Repository<Item>,
     private readonly config: ConfigService,
+    private readonly reservationsService: ReservationsService,
   ) {}
 
   async create(dto: CreateLoanDto): Promise<Loan> {
@@ -70,6 +72,9 @@ export class LoansService {
       );
     }
 
+    // R-B1.4 — Si hay reservas pendientes, solo el primero en cola puede tomar el préstamo
+    await this.reservationsService.assertCanTakeLoan(dto.itemId, dto.userId);
+
     const loan = this.loanRepository.create({
       userId: dto.userId,
       itemId: dto.itemId,
@@ -108,7 +113,12 @@ export class LoansService {
     loan.status = LoanStatus.RETURNED;
     loan.fineAmount = fineAmount;
 
-    return this.loanRepository.save(loan);
+    const saved = await this.loanRepository.save(loan);
+
+    // R-B1.2 — Fulfill next pending reservation for the returned item
+    await this.reservationsService.fulfillNextPending(loan.itemId);
+
+    return saved;
   }
 
   async markLost(loanId: string): Promise<Loan> {
