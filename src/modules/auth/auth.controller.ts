@@ -4,6 +4,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { User } from './entities/user.entity';
 
@@ -22,9 +23,25 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Iniciar sesión — devuelve { accessToken, user }' })
+  @ApiOperation({ summary: 'Iniciar sesión — devuelve { accessToken, refreshToken, user }' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Obtener nuevo accessToken usando refreshToken' })
+  refresh(@Body() dto: RefreshDto) {
+    return this.authService.refresh(dto);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revocar refreshToken — requiere JWT' })
+  logout(@Body() dto: RefreshDto) {
+    return this.authService.logout(dto);
   }
 
   @Get('me')

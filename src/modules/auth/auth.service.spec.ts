@@ -6,11 +6,18 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { ObjectLiteral, Repository } from 'typeorm';
 import { AuthService } from './auth.service';
+import { RefreshToken } from './entities/refresh-token.entity';
 import { User, UserRole } from './entities/user.entity';
 
 type MockRepository<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
 const mockUserRepository = (): MockRepository<User> => ({
+  findOne: jest.fn(),
+  create: jest.fn(),
+  save: jest.fn(),
+});
+
+const mockRefreshTokenRepository = (): MockRepository<RefreshToken> => ({
   findOne: jest.fn(),
   create: jest.fn(),
   save: jest.fn(),
@@ -31,15 +38,17 @@ const baseUser = (): Partial<User> => ({
 describe('AuthService', () => {
   let service: AuthService;
   let userRepo: MockRepository<User>;
+  let refreshTokenRepo: MockRepository<RefreshToken>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: getRepositoryToken(User), useFactory: mockUserRepository },
+        { provide: getRepositoryToken(RefreshToken), useFactory: mockRefreshTokenRepository },
         {
           provide: JwtService,
-          useValue: { sign: jest.fn().mockReturnValue('mock-token') },
+          useValue: { sign: jest.fn().mockReturnValue('mock-token'), verify: jest.fn() },
         },
         {
           provide: ConfigService,
@@ -61,6 +70,9 @@ describe('AuthService', () => {
 
     service = module.get<AuthService>(AuthService);
     userRepo = module.get(getRepositoryToken(User));
+    refreshTokenRepo = module.get(getRepositoryToken(RefreshToken));
+    refreshTokenRepo.create!.mockReturnValue({} as RefreshToken);
+    refreshTokenRepo.save!.mockResolvedValue({} as RefreshToken);
   });
 
   describe('register', () => {

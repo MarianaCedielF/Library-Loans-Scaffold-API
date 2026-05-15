@@ -99,6 +99,21 @@ WHERE due_at < NOW()
 
 ## Bonos implementados
 
+### B2 — Refresh tokens stateful (+5%)
+
+Implementado. Nuevos endpoints:
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| `POST /auth/refresh` | public | — | Recibe `{ refreshToken }`, valida firma + BD → devuelve nuevo `{ accessToken }` |
+| `POST /auth/logout` | JWT | Bearer | Recibe `{ refreshToken }`, marca `revokedAt = now()`. Usos posteriores devuelven 403 |
+
+- `POST /auth/login` y `POST /auth/register` devuelven `{ accessToken, refreshToken, user }` y persisten el refresh token.
+- Dos secretos independientes: `JWT_ACCESS_SECRET` (expira 15m) y `JWT_REFRESH_SECRET` (expira 7d), ambos ≥ 32 chars validados por Joi.
+- Refresh token revocado o expirado devuelve **403 Forbidden**.
+
+---
+
 ### B1 — Cola FIFO de reservas (+8%)
 
 Implementado. Nuevos endpoints en `/api/reservations`:
@@ -125,4 +140,7 @@ Implementado. Nuevos endpoints en `/api/reservations`:
 | `DAILY_FINE_RATE` | 0.50 | Multa en USD por día de retraso (R4) |
 | `MAX_LOAN_DAYS` | 30 | Ventana máxima de préstamo en días (R1) |
 | `JWT_ACCESS_SECRET` | — | Mínimo 32 caracteres |
+| `JWT_REFRESH_SECRET` | — | Mínimo 32 caracteres |
+| `JWT_ACCESS_EXPIRES_IN` | 15m | Expiración del access token |
+| `JWT_REFRESH_EXPIRES_IN` | 7d | Expiración del refresh token |
 | `BCRYPT_SALT_ROUNDS` | 10 | Rondas de hash (4-15) |
