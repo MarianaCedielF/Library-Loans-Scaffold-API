@@ -1,14 +1,15 @@
 import {
   BadRequestException,
-  ForbiddenException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { Item } from '../items/entities/item.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
+import { QueryLoansDto } from './dto/query-loans.dto';
 import { Loan, LoanStatus } from './entities/loan.entity';
 
 @Injectable()
@@ -21,15 +22,21 @@ export class LoansService {
     private readonly config: ConfigService,
   ) {}
 
-  async create(userId: string, dto: CreateLoanDto): Promise<Loan> {
+  async create(dto: CreateLoanDto): Promise<Loan> {
     const maxActive = this.config.get<number>('loans.maxActivePerUser', 3);
-    const maxDays = this.config.get<number>('loans.maxLoanDays', 30);
+
+    const loanedAt = new Date();
+    const dueAt = new Date(dto.dueAt);
+
+    if (dueAt <= loanedAt) {
+      throw new BadRequestException('dueAt debe ser una fecha futura');
+    }
 
     const activeCount = await this.loanRepository.count({
-      where: { userId, status: LoanStatus.ACTIVE },
+      where: { userId: dto.userId, status: LoanStatus.ACTIVE },
     });
     if (activeCount >= maxActive) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El usuario ya tiene ${maxActive} préstamos activos (límite máximo)`,
       );
     }
@@ -40,14 +47,10 @@ export class LoansService {
     const activeLoan = await this.loanRepository.findOne({
       where: { itemId: dto.itemId, status: LoanStatus.ACTIVE },
     });
-    if (activeLoan) throw new BadRequestException('El ítem no está disponible actualmente');
-
-    const loanedAt = new Date();
-    const dueAt = new Date(loanedAt);
-    dueAt.setDate(dueAt.getDate() + maxDays);
+    if (activeLoan) throw new ConflictException('El ítem no está disponible actualmente');
 
     const loan = this.loanRepository.create({
-      userId,
+      userId: dto.userId,
       itemId: dto.itemId,
       loanedAt,
       dueAt,
@@ -59,14 +62,14 @@ export class LoansService {
     return this.loanRepository.save(loan);
   }
 
-  async returnLoan(loanId: string, userId: string): Promise<Loan> {
+  async returnLoan(loanId: string): Promise<Loan> {
     const dailyFine = this.config.get<number>('loans.dailyFineRate', 0.5);
 
     const loan = await this.loanRepository.findOne({ where: { id: loanId } });
     if (!loan) throw new NotFoundException(`Préstamo con id ${loanId} no encontrado`);
-    if (loan.userId !== userId) throw new ForbiddenException('No tienes permiso sobre este préstamo');
+
     if (loan.status === LoanStatus.RETURNED || loan.status === LoanStatus.LOST) {
-      throw new BadRequestException(`El préstamo ya tiene estado "${loan.status}"`);
+      throw new ConflictException(`El préstamo ya tiene estado "${loan.status}"`);
     }
 
     const returnedAt = new Date();
@@ -86,16 +89,26 @@ export class LoansService {
     return this.loanRepository.save(loan);
   }
 
-  findAllByUser(userId: string): Promise<Loan[]> {
-    return this.loanRepository.find({
-      where: { userId },
-      relations: ['item'],
-      order: { createdAt: 'DESC' },
-    });
+  async markLost(loanId: string): Promise<Loan> {
+    const loan = await this.loanRepository.findOne({ where: { id: loanId } });
+    if (!loan) throw new NotFoundException(`Préstamo con id ${loanId} no encontrado`);
+
+    if (loan.status === LoanStatus.RETURNED) {
+      throw new ConflictException('No se puede marcar como perdido un préstamo ya devuelto');
+    }
+
+    loan.status = LoanStatus.LOST;
+    return this.loanRepository.save(loan);
   }
 
-  findAll(): Promise<Loan[]> {
+  findAll(query: QueryLoansDto): Promise<Loan[]> {
+    const where: FindOptionsWhere<Loan> = {};
+    if (query.userId) where.userId = query.userId;
+    if (query.itemId) where.itemId = query.itemId;
+    if (query.status) where.status = query.status;
+
     return this.loanRepository.find({
+      where,
       relations: ['item', 'user'],
       order: { createdAt: 'DESC' },
     });

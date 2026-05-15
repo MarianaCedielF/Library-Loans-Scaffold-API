@@ -9,11 +9,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ItemsService } from './items.service';
 import { CreateItemDto } from './dto/create-item.dto';
+import { QueryItemsDto } from './dto/query-items.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
+import { ItemsService } from './items.service';
 
 @ApiTags('items')
 @ApiBearerAuth()
@@ -22,32 +24,33 @@ export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear un ítem (libro/recurso)' })
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Crear un ítem' })
   create(@Body() dto: CreateItemDto) {
     return this.itemsService.create(dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar todos los ítems' })
-  findAll() {
-    return this.itemsService.findAll();
+  @ApiOperation({ summary: 'Listar ítems activos. Filtro opcional ?type=' })
+  findAll(@Query() query: QueryItemsDto) {
+    return this.itemsService.findAll(query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener un ítem por id' })
+  @ApiOperation({ summary: 'Detalle de un ítem, incluido isAvailable' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.itemsService.findOne(id);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar un ítem' })
+  @ApiOperation({ summary: 'Actualizar title o type de un ítem' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateItemDto) {
     return this.itemsService.update(id, dto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Eliminar un ítem' })
+  @ApiOperation({ summary: 'Soft delete (isActive = false)' })
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.itemsService.remove(id);
   }

@@ -8,11 +8,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { User } from '../auth/entities/user.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
+import { QueryLoansDto } from './dto/query-loans.dto';
 import { LoansService } from './loans.service';
 
 @ApiTags('loans')
@@ -22,33 +22,35 @@ export class LoansController {
   constructor(private readonly loansService: LoansService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear un préstamo para el usuario autenticado' })
-  create(@CurrentUser() user: User, @Body() dto: CreateLoanDto) {
-    return this.loansService.create(user.id, dto);
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Crear préstamo. loanedAt = now(), dueAt provisto por cliente' })
+  create(@Body() dto: CreateLoanDto) {
+    return this.loansService.create(dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar todos los préstamos (admin)' })
-  findAll() {
-    return this.loansService.findAll();
-  }
-
-  @Get('me')
-  @ApiOperation({ summary: 'Listar préstamos del usuario autenticado' })
-  findMine(@CurrentUser() user: User) {
-    return this.loansService.findAllByUser(user.id);
+  @ApiOperation({ summary: 'Listar préstamos. Filtros: ?userId=&itemId=&status=' })
+  findAll(@Query() query: QueryLoansDto) {
+    return this.loansService.findAll(query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener un préstamo por id' })
+  @ApiOperation({ summary: 'Detalle de un préstamo' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.loansService.findOne(id);
   }
 
   @Patch(':id/return')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Devolver un préstamo activo' })
-  returnLoan(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
-    return this.loansService.returnLoan(id, user.id);
+  @ApiOperation({ summary: 'Marcar como devuelto. Calcula multa automáticamente' })
+  returnLoan(@Param('id', ParseUUIDPipe) id: string) {
+    return this.loansService.returnLoan(id);
+  }
+
+  @Patch(':id/mark-lost')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Marcar préstamo como lost' })
+  markLost(@Param('id', ParseUUIDPipe) id: string) {
+    return this.loansService.markLost(id);
   }
 }

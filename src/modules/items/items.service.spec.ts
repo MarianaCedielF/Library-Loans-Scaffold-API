@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ObjectLiteral, Repository } from 'typeorm';
+import { DataSource, ObjectLiteral, Repository } from 'typeorm';
 import { Item, ItemType } from './entities/item.entity';
 import { ItemsService } from './items.service';
 
@@ -12,7 +12,6 @@ const mockItemRepository = (): MockRepository<Item> => ({
   find: jest.fn(),
   create: jest.fn(),
   save: jest.fn(),
-  remove: jest.fn(),
 });
 
 const makeItem = (overrides: Partial<Item> = {}): Item =>
@@ -27,21 +26,33 @@ const makeItem = (overrides: Partial<Item> = {}): Item =>
     ...overrides,
   }) as Item;
 
+const mockDataSource = (activeLoanCount = 0) => ({
+  getRepository: jest.fn().mockReturnValue({
+    createQueryBuilder: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(activeLoanCount),
+    }),
+  }),
+});
+
 describe('ItemsService', () => {
   let service: ItemsService;
   let itemRepo: MockRepository<Item>;
 
-  beforeEach(async () => {
+  const buildModule = async (loanCount = 0): Promise<void> => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ItemsService,
         { provide: getRepositoryToken(Item), useFactory: mockItemRepository },
+        { provide: DataSource, useValue: mockDataSource(loanCount) },
       ],
     }).compile();
 
     service = module.get<ItemsService>(ItemsService);
     itemRepo = module.get(getRepositoryToken(Item));
-  });
+  };
+
+  beforeEach(() => buildModule(0));
 
   describe('create', () => {
     it('should create and return a new item', async () => {
@@ -66,18 +77,26 @@ describe('ItemsService', () => {
   });
 
   describe('findAll', () => {
-    it('should return active items', async () => {
+    it('should return items with isAvailable computed', async () => {
       itemRepo.find!.mockResolvedValue([makeItem()]);
-      const result = await service.findAll();
+      const result = await service.findAll({});
       expect(result).toHaveLength(1);
+      expect(result[0]).toHaveProperty('isAvailable', true);
+    });
+
+    it('should mark isAvailable false when active loan exists', async () => {
+      await buildModule(1);
+      itemRepo.find!.mockResolvedValue([makeItem()]);
+      const result = await service.findAll({});
+      expect(result[0].isAvailable).toBe(false);
     });
   });
 
   describe('findOne', () => {
-    it('should return item when found', async () => {
+    it('should return item with isAvailable', async () => {
       itemRepo.findOne!.mockResolvedValue(makeItem());
       const result = await service.findOne('item-uuid');
-      expect(result.code).toBe('BK-0042');
+      expect(result).toHaveProperty('isAvailable', true);
     });
 
     it('should throw NotFoundException when item does not exist', async () => {
@@ -87,38 +106,26 @@ describe('ItemsService', () => {
   });
 
   describe('update', () => {
-    it('should update and return the item', async () => {
+    it('should update and return the item with isAvailable', async () => {
       const item = makeItem();
       itemRepo.findOne!.mockResolvedValue(item);
       itemRepo.save!.mockResolvedValue({ ...item, title: 'Updated' });
 
       const result = await service.update('item-uuid', { title: 'Updated' });
       expect(result.title).toBe('Updated');
+      expect(result).toHaveProperty('isAvailable');
     });
 
     it('should throw NotFoundException when item does not exist', async () => {
       itemRepo.findOne!.mockResolvedValue(null);
       await expect(service.update('no-uuid', { title: 'X' })).rejects.toThrow(NotFoundException);
     });
-
-    it('should throw BadRequestException if new code already taken', async () => {
-      const item = makeItem();
-      const other = makeItem({ id: 'other-id', code: 'BK-0099' });
-      itemRepo.findOne!
-        .mockResolvedValueOnce(item)
-        .mockResolvedValueOnce(other);
-
-      await expect(service.update('item-uuid', { code: 'BK-0099' })).rejects.toThrow(
-        BadRequestException,
-      );
-    });
   });
 
   describe('remove', () => {
     it('should soft-delete the item (isActive = false)', async () => {
-      const item = makeItem();
-      itemRepo.findOne!.mockResolvedValue(item);
-      itemRepo.save!.mockResolvedValue({ ...item, isActive: false });
+      itemRepo.findOne!.mockResolvedValue(makeItem());
+      itemRepo.save!.mockResolvedValue(makeItem({ isActive: false }));
 
       await service.remove('item-uuid');
       expect(itemRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));

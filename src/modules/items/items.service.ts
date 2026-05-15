@@ -1,15 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Item } from './entities/item.entity';
+import { DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import { LoanStatus } from '../loans/entities/loan.entity';
 import { CreateItemDto } from './dto/create-item.dto';
+import { QueryItemsDto } from './dto/query-items.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
+import { Item } from './entities/item.entity';
+
+export type ItemWithAvailability = Item & { isAvailable: boolean };
 
 @Injectable()
 export class ItemsService {
   constructor(
     @InjectRepository(Item)
     private readonly itemRepository: Repository<Item>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateItemDto): Promise<Item> {
@@ -20,18 +25,23 @@ export class ItemsService {
     return this.itemRepository.save(item);
   }
 
-  findAll(): Promise<Item[]> {
-    return this.itemRepository.find({ where: { isActive: true }, order: { createdAt: 'DESC' } });
+  async findAll(query: QueryItemsDto): Promise<ItemWithAvailability[]> {
+    const where: FindOptionsWhere<Item> = { isActive: true };
+    if (query.type) where.type = query.type;
+
+    const items = await this.itemRepository.find({ where, order: { createdAt: 'DESC' } });
+    return Promise.all(items.map((item) => this.withAvailability(item)));
   }
 
-  async findOne(id: string): Promise<Item> {
+  async findOne(id: string): Promise<ItemWithAvailability> {
     const item = await this.itemRepository.findOne({ where: { id } });
     if (!item) throw new NotFoundException(`Ítem con id ${id} no encontrado`);
-    return item;
+    return this.withAvailability(item);
   }
 
-  async update(id: string, dto: UpdateItemDto): Promise<Item> {
-    const item = await this.findOne(id);
+  async update(id: string, dto: UpdateItemDto): Promise<ItemWithAvailability> {
+    const item = await this.itemRepository.findOne({ where: { id } });
+    if (!item) throw new NotFoundException(`Ítem con id ${id} no encontrado`);
 
     if (dto.code && dto.code !== item.code) {
       const existing = await this.itemRepository.findOne({ where: { code: dto.code } });
@@ -39,12 +49,26 @@ export class ItemsService {
     }
 
     Object.assign(item, dto);
-    return this.itemRepository.save(item);
+    const saved = await this.itemRepository.save(item);
+    return this.withAvailability(saved);
   }
 
   async remove(id: string): Promise<void> {
-    const item = await this.findOne(id);
+    const item = await this.itemRepository.findOne({ where: { id } });
+    if (!item) throw new NotFoundException(`Ítem con id ${id} no encontrado`);
     item.isActive = false;
     await this.itemRepository.save(item);
+  }
+
+  private async withAvailability(item: Item): Promise<ItemWithAvailability> {
+    const loanRepo = this.dataSource.getRepository('loans');
+    const count: number = await loanRepo
+      .createQueryBuilder('loan')
+      .where('loan.item_id = :itemId AND loan.status = :status', {
+        itemId: item.id,
+        status: LoanStatus.ACTIVE,
+      })
+      .getCount();
+    return { ...item, isAvailable: count === 0 };
   }
 }
