@@ -6,7 +6,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { ObjectLiteral, Repository } from 'typeorm';
 import { AuthService } from './auth.service';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 
 type MockRepository<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
 
@@ -14,6 +14,18 @@ const mockUserRepository = (): MockRepository<User> => ({
   findOne: jest.fn(),
   create: jest.fn(),
   save: jest.fn(),
+});
+
+const baseUser = (): Partial<User> => ({
+  id: 'uuid-1',
+  email: 'test@test.com',
+  passwordHash: 'hashed',
+  firstName: 'Juan',
+  lastName: 'Pérez',
+  role: UserRole.MEMBER,
+  isActive: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
 });
 
 describe('AuthService', () => {
@@ -52,15 +64,14 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    it('should create a user and return data without password', async () => {
-      const dto = { email: 'new@test.com', password: 'password123' };
-      const saved: Partial<User> = {
-        id: 'uuid-1',
-        email: dto.email,
-        password: 'hashed',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    it('should create a user and return data without passwordHash', async () => {
+      const dto = {
+        email: 'new@test.com',
+        password: 'password123',
+        firstName: 'Juan',
+        lastName: 'Pérez',
       };
+      const saved = { ...baseUser(), email: dto.email };
 
       userRepo.findOne!.mockResolvedValue(null);
       userRepo.create!.mockReturnValue(saved as User);
@@ -68,16 +79,21 @@ describe('AuthService', () => {
 
       const result = await service.register(dto);
 
-      expect(result).toHaveProperty('id', 'uuid-1');
-      expect(result).toHaveProperty('email', dto.email);
-      expect(result).not.toHaveProperty('password');
+      expect(result).toHaveProperty('accessToken');
+      expect(result.user).toHaveProperty('email', dto.email);
+      expect(result.user).not.toHaveProperty('passwordHash');
     });
 
     it('should throw ConflictException when email is already registered', async () => {
-      userRepo.findOne!.mockResolvedValue({ id: 'existing' } as User);
+      userRepo.findOne!.mockResolvedValue(baseUser() as User);
 
       await expect(
-        service.register({ email: 'taken@test.com', password: 'password123' }),
+        service.register({
+          email: 'taken@test.com',
+          password: 'password123',
+          firstName: 'A',
+          lastName: 'B',
+        }),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -85,16 +101,13 @@ describe('AuthService', () => {
   describe('login', () => {
     it('should return tokens for valid credentials', async () => {
       const password = 'validPass1';
-      const hashed = await bcrypt.hash(password, 4);
-      const user: Partial<User> = { id: 'uuid-2', email: 'user@test.com', password: hashed };
+      const passwordHash = await bcrypt.hash(password, 4);
+      userRepo.findOne!.mockResolvedValue({ ...baseUser(), passwordHash } as User);
 
-      userRepo.findOne!.mockResolvedValue(user as User);
-
-      const result = await service.login({ email: 'user@test.com', password });
+      const result = await service.login({ email: 'test@test.com', password });
 
       expect(result).toHaveProperty('accessToken');
-      expect(result).toHaveProperty('refreshToken');
-      expect(result.user).toMatchObject({ id: 'uuid-2', email: 'user@test.com' });
+      expect(result.user).toMatchObject({ email: 'test@test.com' });
     });
 
     it('should throw UnauthorizedException when user does not exist', async () => {
@@ -106,11 +119,11 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for wrong password', async () => {
-      const hashed = await bcrypt.hash('correctPass', 4);
-      userRepo.findOne!.mockResolvedValue({ id: 'x', email: 'u@u.com', password: hashed } as User);
+      const passwordHash = await bcrypt.hash('correctPass', 4);
+      userRepo.findOne!.mockResolvedValue({ ...baseUser(), passwordHash } as User);
 
       await expect(
-        service.login({ email: 'u@u.com', password: 'wrongPass' }),
+        service.login({ email: 'test@test.com', password: 'wrongPass' }),
       ).rejects.toThrow(UnauthorizedException);
     });
   });

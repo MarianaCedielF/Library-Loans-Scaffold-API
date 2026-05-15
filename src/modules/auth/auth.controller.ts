@@ -14,7 +14,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  @ApiOperation({ summary: 'Registrar nuevo usuario' })
+  @ApiOperation({ summary: 'Registrar nuevo usuario (role: member)' })
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
@@ -22,15 +22,15 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Iniciar sesión y obtener tokens JWT' })
+  @ApiOperation({ summary: 'Iniciar sesión — devuelve { accessToken, user }' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
 
-  @Get('profile')
+  @Get('me')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
-  profile(@CurrentUser() user: User) {
-    return { id: user.id, email: user.email, createdAt: user.createdAt };
+  @ApiOperation({ summary: 'Devuelve el usuario autenticado (requiere JWT)' })
+  me(@CurrentUser() user: User) {
+    return user;
   }
 }
