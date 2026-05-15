@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository } from 'typeorm';
-import { Item } from './entities/item.entity';
+import { Item, ItemType } from './entities/item.entity';
 import { ItemsService } from './items.service';
 
 type MockRepository<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
@@ -18,12 +18,10 @@ const mockItemRepository = (): MockRepository<Item> => ({
 const makeItem = (overrides: Partial<Item> = {}): Item =>
   ({
     id: 'item-uuid',
+    code: 'BK-0042',
     title: 'Clean Code',
-    author: 'Robert C. Martin',
-    isbn: '978-0132350884',
-    description: null,
-    totalCopies: 3,
-    availableCopies: 3,
+    type: ItemType.BOOK,
+    isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -47,7 +45,7 @@ describe('ItemsService', () => {
 
   describe('create', () => {
     it('should create and return a new item', async () => {
-      const dto = { title: 'Clean Code', author: 'R. Martin', totalCopies: 3 };
+      const dto = { code: 'BK-0042', title: 'Clean Code', type: ItemType.BOOK };
       const item = makeItem();
 
       itemRepo.findOne!.mockResolvedValue(null);
@@ -56,20 +54,19 @@ describe('ItemsService', () => {
 
       const result = await service.create(dto);
       expect(result).toEqual(item);
-      expect(itemRepo.save).toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException if ISBN already exists', async () => {
+    it('should throw BadRequestException if code already exists', async () => {
       itemRepo.findOne!.mockResolvedValue(makeItem());
 
       await expect(
-        service.create({ title: 'Book', author: 'Author', isbn: '978-0132350884', totalCopies: 1 }),
+        service.create({ code: 'BK-0042', title: 'Other', type: ItemType.BOOK }),
       ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('findAll', () => {
-    it('should return an array of items', async () => {
+    it('should return active items', async () => {
       itemRepo.find!.mockResolvedValue([makeItem()]);
       const result = await service.findAll();
       expect(result).toHaveLength(1);
@@ -78,10 +75,9 @@ describe('ItemsService', () => {
 
   describe('findOne', () => {
     it('should return item when found', async () => {
-      const item = makeItem();
-      itemRepo.findOne!.mockResolvedValue(item);
+      itemRepo.findOne!.mockResolvedValue(makeItem());
       const result = await service.findOne('item-uuid');
-      expect(result).toEqual(item);
+      expect(result.code).toBe('BK-0042');
     });
 
     it('should throw NotFoundException when item does not exist', async () => {
@@ -105,24 +101,27 @@ describe('ItemsService', () => {
       await expect(service.update('no-uuid', { title: 'X' })).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException if reducing copies below borrowed count', async () => {
-      const item = makeItem({ totalCopies: 3, availableCopies: 1 });
-      itemRepo.findOne!.mockResolvedValue(item);
+    it('should throw BadRequestException if new code already taken', async () => {
+      const item = makeItem();
+      const other = makeItem({ id: 'other-id', code: 'BK-0099' });
+      itemRepo.findOne!
+        .mockResolvedValueOnce(item)
+        .mockResolvedValueOnce(other);
 
-      await expect(service.update('item-uuid', { totalCopies: 1 })).rejects.toThrow(
+      await expect(service.update('item-uuid', { code: 'BK-0099' })).rejects.toThrow(
         BadRequestException,
       );
     });
   });
 
   describe('remove', () => {
-    it('should remove the item', async () => {
+    it('should soft-delete the item (isActive = false)', async () => {
       const item = makeItem();
       itemRepo.findOne!.mockResolvedValue(item);
-      itemRepo.remove!.mockResolvedValue(item);
+      itemRepo.save!.mockResolvedValue({ ...item, isActive: false });
 
       await service.remove('item-uuid');
-      expect(itemRepo.remove).toHaveBeenCalledWith(item);
+      expect(itemRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
     });
 
     it('should throw NotFoundException when item does not exist', async () => {

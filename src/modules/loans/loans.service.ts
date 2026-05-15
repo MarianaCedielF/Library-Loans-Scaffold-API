@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Item } from '../items/entities/item.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
-import { Loan } from './entities/loan.entity';
+import { Loan, LoanStatus } from './entities/loan.entity';
 
 @Injectable()
 export class LoansService {
@@ -26,7 +26,7 @@ export class LoansService {
     const maxDays = this.config.get<number>('loans.maxLoanDays', 30);
 
     const activeCount = await this.loanRepository.count({
-      where: { userId, status: 'active' },
+      where: { userId, status: LoanStatus.ACTIVE },
     });
     if (activeCount >= maxActive) {
       throw new BadRequestException(
@@ -34,25 +34,24 @@ export class LoansService {
       );
     }
 
-    const item = await this.itemRepository.findOne({ where: { id: dto.itemId } });
+    const item = await this.itemRepository.findOne({ where: { id: dto.itemId, isActive: true } });
     if (!item) throw new NotFoundException(`Ítem con id ${dto.itemId} no encontrado`);
-    if (item.availableCopies <= 0) {
-      throw new BadRequestException('No hay copias disponibles de este ítem');
-    }
 
-    const borrowedAt = new Date();
-    const dueDate = new Date(borrowedAt);
-    dueDate.setDate(dueDate.getDate() + maxDays);
+    const activeLoan = await this.loanRepository.findOne({
+      where: { itemId: dto.itemId, status: LoanStatus.ACTIVE },
+    });
+    if (activeLoan) throw new BadRequestException('El ítem no está disponible actualmente');
 
-    item.availableCopies -= 1;
-    await this.itemRepository.save(item);
+    const loanedAt = new Date();
+    const dueAt = new Date(loanedAt);
+    dueAt.setDate(dueAt.getDate() + maxDays);
 
     const loan = this.loanRepository.create({
       userId,
       itemId: dto.itemId,
-      borrowedAt,
-      dueDate,
-      status: 'active',
+      loanedAt,
+      dueAt,
+      status: LoanStatus.ACTIVE,
       fineAmount: 0,
       returnedAt: null,
     });
@@ -66,28 +65,22 @@ export class LoansService {
     const loan = await this.loanRepository.findOne({ where: { id: loanId } });
     if (!loan) throw new NotFoundException(`Préstamo con id ${loanId} no encontrado`);
     if (loan.userId !== userId) throw new ForbiddenException('No tienes permiso sobre este préstamo');
-    if (loan.status === 'returned') {
-      throw new BadRequestException('Este préstamo ya fue devuelto');
+    if (loan.status === LoanStatus.RETURNED || loan.status === LoanStatus.LOST) {
+      throw new BadRequestException(`El préstamo ya tiene estado "${loan.status}"`);
     }
 
     const returnedAt = new Date();
-    const dueDate = new Date(loan.dueDate);
+    const dueAt = new Date(loan.dueAt);
     let fineAmount = 0;
 
-    if (returnedAt > dueDate) {
+    if (returnedAt > dueAt) {
       const msPerDay = 1000 * 60 * 60 * 24;
-      const daysOverdue = Math.ceil((returnedAt.getTime() - dueDate.getTime()) / msPerDay);
+      const daysOverdue = Math.ceil((returnedAt.getTime() - dueAt.getTime()) / msPerDay);
       fineAmount = parseFloat((daysOverdue * dailyFine).toFixed(2));
     }
 
-    const item = await this.itemRepository.findOne({ where: { id: loan.itemId } });
-    if (item) {
-      item.availableCopies += 1;
-      await this.itemRepository.save(item);
-    }
-
     loan.returnedAt = returnedAt;
-    loan.status = 'returned';
+    loan.status = LoanStatus.RETURNED;
     loan.fineAmount = fineAmount;
 
     return this.loanRepository.save(loan);

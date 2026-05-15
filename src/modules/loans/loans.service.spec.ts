@@ -3,9 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository } from 'typeorm';
-import { Item } from '../items/entities/item.entity';
+import { Item, ItemType } from '../items/entities/item.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
-import { Loan } from './entities/loan.entity';
+import { Loan, LoanStatus } from './entities/loan.entity';
 import { LoansService } from './loans.service';
 
 type MockRepository<T extends ObjectLiteral> = Partial<Record<keyof Repository<T>, jest.Mock>>;
@@ -21,30 +21,28 @@ const mockRepo = <T extends ObjectLiteral>(): MockRepository<T> => ({
 const makeItem = (overrides: Partial<Item> = {}): Item =>
   ({
     id: 'item-uuid',
+    code: 'BK-0042',
     title: 'Clean Code',
-    author: 'R. Martin',
-    isbn: null,
-    description: null,
-    totalCopies: 5,
-    availableCopies: 5,
+    type: ItemType.BOOK,
+    isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
   }) as Item;
 
 const makeLoan = (overrides: Partial<Loan> = {}): Loan => {
-  const borrowedAt = new Date();
-  const dueDate = new Date(borrowedAt);
-  dueDate.setDate(dueDate.getDate() + 30);
+  const loanedAt = new Date();
+  const dueAt = new Date(loanedAt);
+  dueAt.setDate(dueAt.getDate() + 30);
   return {
     id: 'loan-uuid',
     userId: 'user-uuid',
     itemId: 'item-uuid',
-    borrowedAt,
-    dueDate,
+    loanedAt,
+    dueAt,
     returnedAt: null,
     fineAmount: 0,
-    status: 'active',
+    status: LoanStatus.ACTIVE,
     createdAt: new Date(),
     updatedAt: new Date(),
     user: {} as never,
@@ -89,38 +87,33 @@ describe('LoansService', () => {
     const dto: CreateLoanDto = { itemId: 'item-uuid' };
     const userId = 'user-uuid';
 
-    it('should create a loan when conditions are met', async () => {
-      const item = makeItem();
+    it('should create a loan when all conditions are met', async () => {
       const loan = makeLoan();
-
       loanRepo.count!.mockResolvedValue(0);
-      itemRepo.findOne!.mockResolvedValue(item);
-      itemRepo.save!.mockResolvedValue({ ...item, availableCopies: 4 });
+      itemRepo.findOne!.mockResolvedValue(makeItem());
+      loanRepo.findOne!.mockResolvedValue(null);
       loanRepo.create!.mockReturnValue(loan);
       loanRepo.save!.mockResolvedValue(loan);
 
       const result = await service.create(userId, dto);
-      expect(result).toEqual(loan);
-      expect(itemRepo.save).toHaveBeenCalled();
+      expect(result.status).toBe(LoanStatus.ACTIVE);
     });
 
     it('should throw BadRequestException when max active loans reached', async () => {
       loanRepo.count!.mockResolvedValue(3);
-
       await expect(service.create(userId, dto)).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw NotFoundException when item does not exist', async () => {
+    it('should throw NotFoundException when item does not exist or is inactive', async () => {
       loanRepo.count!.mockResolvedValue(0);
       itemRepo.findOne!.mockResolvedValue(null);
-
       await expect(service.create(userId, dto)).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException when no available copies', async () => {
+    it('should throw BadRequestException when item already has an active loan', async () => {
       loanRepo.count!.mockResolvedValue(0);
-      itemRepo.findOne!.mockResolvedValue(makeItem({ availableCopies: 0 }));
-
+      itemRepo.findOne!.mockResolvedValue(makeItem());
+      loanRepo.findOne!.mockResolvedValue(makeLoan());
       await expect(service.create(userId, dto)).rejects.toThrow(BadRequestException);
     });
   });
@@ -128,27 +121,19 @@ describe('LoansService', () => {
   describe('returnLoan', () => {
     it('should return a loan on time with zero fine', async () => {
       const loan = makeLoan();
-      const item = makeItem();
-
       loanRepo.findOne!.mockResolvedValue(loan);
-      itemRepo.findOne!.mockResolvedValue(item);
-      itemRepo.save!.mockResolvedValue({ ...item, availableCopies: 6 });
-      loanRepo.save!.mockResolvedValue({ ...loan, status: 'returned', fineAmount: 0 });
+      loanRepo.save!.mockImplementation((l: Loan) => Promise.resolve(l));
 
       const result = await service.returnLoan('loan-uuid', 'user-uuid');
-      expect(result.status).toBe('returned');
+      expect(result.status).toBe(LoanStatus.RETURNED);
       expect(result.fineAmount).toBe(0);
     });
 
-    it('should calculate fine for overdue return', async () => {
-      const borrowedAt = new Date('2025-01-01');
-      const dueDate = new Date('2025-01-31');
-      const loan = makeLoan({ borrowedAt, dueDate });
-      const item = makeItem();
-
+    it('should calculate fine for an overdue return', async () => {
+      const loanedAt = new Date('2025-01-01');
+      const dueAt = new Date('2025-01-31');
+      const loan = makeLoan({ loanedAt, dueAt });
       loanRepo.findOne!.mockResolvedValue(loan);
-      itemRepo.findOne!.mockResolvedValue(item);
-      itemRepo.save!.mockResolvedValue(item);
       loanRepo.save!.mockImplementation((l: Loan) => Promise.resolve(l));
 
       const result = await service.returnLoan('loan-uuid', 'user-uuid');
@@ -166,7 +151,7 @@ describe('LoansService', () => {
     });
 
     it('should throw BadRequestException when loan is already returned', async () => {
-      loanRepo.findOne!.mockResolvedValue(makeLoan({ status: 'returned' }));
+      loanRepo.findOne!.mockResolvedValue(makeLoan({ status: LoanStatus.RETURNED }));
       await expect(service.returnLoan('loan-uuid', 'user-uuid')).rejects.toThrow(BadRequestException);
     });
   });

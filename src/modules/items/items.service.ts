@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Item } from './entities/item.entity';
@@ -17,22 +13,15 @@ export class ItemsService {
   ) {}
 
   async create(dto: CreateItemDto): Promise<Item> {
-    if (dto.isbn) {
-      const existing = await this.itemRepository.findOne({ where: { isbn: dto.isbn } });
-      if (existing) throw new BadRequestException('Ya existe un ítem con ese ISBN');
-    }
+    const existing = await this.itemRepository.findOne({ where: { code: dto.code } });
+    if (existing) throw new BadRequestException(`Ya existe un ítem con el código ${dto.code}`);
 
-    const item = this.itemRepository.create({
-      ...dto,
-      isbn: dto.isbn ?? null,
-      description: dto.description ?? null,
-      availableCopies: dto.totalCopies,
-    });
+    const item = this.itemRepository.create(dto);
     return this.itemRepository.save(item);
   }
 
   findAll(): Promise<Item[]> {
-    return this.itemRepository.find({ order: { createdAt: 'DESC' } });
+    return this.itemRepository.find({ where: { isActive: true }, order: { createdAt: 'DESC' } });
   }
 
   async findOne(id: string): Promise<Item> {
@@ -44,19 +33,9 @@ export class ItemsService {
   async update(id: string, dto: UpdateItemDto): Promise<Item> {
     const item = await this.findOne(id);
 
-    if (dto.isbn && dto.isbn !== item.isbn) {
-      const existing = await this.itemRepository.findOne({ where: { isbn: dto.isbn } });
-      if (existing) throw new BadRequestException('Ya existe un ítem con ese ISBN');
-    }
-
-    if (dto.totalCopies !== undefined) {
-      const borrowed = item.totalCopies - item.availableCopies;
-      if (dto.totalCopies < borrowed) {
-        throw new BadRequestException(
-          `No se puede reducir a ${dto.totalCopies} copias; hay ${borrowed} en préstamo`,
-        );
-      }
-      item.availableCopies = dto.totalCopies - borrowed;
+    if (dto.code && dto.code !== item.code) {
+      const existing = await this.itemRepository.findOne({ where: { code: dto.code } });
+      if (existing) throw new BadRequestException(`Ya existe un ítem con el código ${dto.code}`);
     }
 
     Object.assign(item, dto);
@@ -65,6 +44,7 @@ export class ItemsService {
 
   async remove(id: string): Promise<void> {
     const item = await this.findOne(id);
-    await this.itemRepository.remove(item);
+    item.isActive = false;
+    await this.itemRepository.save(item);
   }
 }

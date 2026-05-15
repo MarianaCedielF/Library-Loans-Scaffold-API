@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -10,14 +11,21 @@ import {
 import { User } from '../../auth/entities/user.entity';
 import { Item } from '../../items/entities/item.entity';
 
-export type LoanStatus = 'active' | 'returned';
+export enum LoanStatus {
+  ACTIVE = 'active',
+  RETURNED = 'returned',
+  OVERDUE = 'overdue',
+  LOST = 'lost',
+}
 
+@Index(['itemId', 'status'])
+@Index(['userId', 'status'])
 @Entity('loans')
 export class Loan {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
@@ -31,26 +39,26 @@ export class Loan {
   @Column({ name: 'item_id' })
   itemId: string;
 
-  @Column({ name: 'borrowed_at', type: 'date' })
-  borrowedAt: Date;
+  @Column({ name: 'loaned_at', type: 'timestamptz' })
+  loanedAt: Date;
 
-  @Column({ name: 'due_date', type: 'date' })
-  dueDate: Date;
+  @Column({ name: 'due_at', type: 'timestamptz' })
+  dueAt: Date;
 
-  @Column({ name: 'returned_at', type: 'date', nullable: true, default: null })
+  @Column({ name: 'returned_at', type: 'timestamptz', nullable: true, default: null })
   returnedAt: Date | null;
+
+  @Column({ type: 'enum', enum: LoanStatus, default: LoanStatus.ACTIVE })
+  status: LoanStatus;
 
   @Column({
     name: 'fine_amount',
     type: 'decimal',
     precision: 10,
     scale: 2,
-    default: 0,
+    default: '0.00',
   })
   fineAmount: number;
-
-  @Column({ type: 'varchar', length: 10, default: 'active' })
-  status: LoanStatus;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
